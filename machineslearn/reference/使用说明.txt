@@ -1,0 +1,196 @@
+=============================================================
+  MitogeneorderPath 使用说明
+  基于线粒体基因组基因排列顺序的物种鉴定工具（多毛类专用）
+=============================================================
+
+
+一、环境要求
+--------------------------------
+
+1. Python 3.8+
+2. 操作系统: Linux (MITOS2需要bash + conda环境)
+
+依赖安装:
+  pip install numpy pandas torch torch_geometric scikit-learn matplotlib
+
+3. MITOS2:
+   - 需本地已安装并配置好 mitos2 conda 环境
+   - 默认路径: /root/miniconda3 (如不同请修改 run_mitos() 中的路径)
+   - 默认参考序列版本: refseq89o
+   - 遗传密码子: 2 (无脊椎动物线粒体)
+
+
+二、文件说明
+--------------------------------
+
+必须文件:
+  geneorder.csv       - 101个物种的线粒体基因顺序参考数据库
+                         格式: 第一行表头, 之后每行 = 物种ID, "基因1,基因2,..."
+
+输入文件:
+  *.fasta / *.fa      - 待分析的线粒体基因组FASTA序列
+
+输出目录 (默认 ./mito_analysis_results/):
+  best_model.pth              - 训练好的GCN模型权重
+  gene_order_comparison.png   - 基因顺序比对可视化图
+  prediction_result.json      - 预测结果 (物种/置信度/最近邻)
+
+
+三、快速开始 - 完整流程
+--------------------------------
+
+1. 将 geneorder.csv 和待分析FASTA文件准备好
+2. 运行主程序:
+
+     python MitogeneorderPath.py
+
+3. 按提示输入FASTA文件路径
+4. 等待MITOS2注释 → 基因顺序提取 → 模型训练 → 预测 → 出图
+5. 结果在 ./mito_analysis_results/ 目录下
+
+
+四、模块化调用 - 单独使用各模块
+--------------------------------
+
+如果只需要执行某个步骤, 可以在Python中单独调用:
+
+  from MitogeneorderPath import (
+      build_reference_database,
+      run_mitos,
+      extract_gene_order,
+      train_gcn_model,
+      predict_species,
+      plot_comparison,
+  )
+
+--- 模块1: 构建参考数据库 ---
+
+  ref_db = build_reference_database("./geneorder.csv")
+  # ref_db["species_list"]      → 所有物种ID
+  # ref_db["species_genes"][id] → 该物种的基因顺序
+  # ref_db["gene_to_idx"]       → 基因名→索引
+  # ref_db["idx_to_gene"]       → 索引→基因名
+
+--- 模块2: 运行MITOS2注释 ---
+
+  success = run_mitos("./sample.fasta", "./output_dir/")
+  # 需要 Linux + mitos2 conda 环境
+
+--- 模块3: 提取基因顺序 ---
+
+  # 从MITOS2输出目录中提取
+  gene_order = extract_gene_order("./output_dir/")
+  # 返回: ["cox1", "trnN", "cox2", ...]
+  # 自动: 标准化基因名 / 跳过控制区标记 / cox1旋转至起始
+
+--- 模块4: 训练GCN模型 ---
+
+  model, le, train_ds, val_ds = train_gcn_model(
+      ref_db,
+      output_dir="./output_dir/",
+      epochs=100,
+      hidden_dim=64,
+  )
+  # model: 训练好的GNN模型
+  # le: LabelEncoder (物种ID ↔ 数字标签)
+
+--- 模块5: 物种预测 ---
+
+  result = predict_species(
+      query_gene_order=gene_order,
+      ref_db=ref_db,
+      model=model,
+      le=le,
+      train_dataset=train_ds,
+      top_k=3,
+  )
+  # result["predicted_species"] → 预测物种
+  # result["confidence"]        → 置信度
+  # result["nearest_neighbors"] → 最近邻列表
+
+--- 模块6: 可视化比对 ---
+
+  ref_orders = [ref_db["species_genes"][sp] for sp in ["U24570.1", "EF494507.1"]]
+  plot_comparison(
+      query_order=gene_order,
+      ref_orders=ref_orders,
+      ref_names=["U24570.1", "EF494507.1"],
+      gene_to_idx=ref_db["gene_to_idx"],
+      idx_to_gene=ref_db["idx_to_gene"],
+      save_path="./comparison.png",
+  )
+
+
+五、自定义配置
+--------------------------------
+
+在调用时可通过参数覆盖默认值:
+
+  train_gcn_model(ref_db,
+      output_dir="./my_output/",
+      epochs=200,         # 更多训练轮数
+      batch_size=16,      # 更小批大小
+      hidden_dim=128,     # 更大隐藏层
+      lr=0.0005,          # 更小学习率
+  )
+
+MITOS2配置:
+  修改 run_mitos() 函数中的 conda 路径和 runmitos 参数:
+  - /root/miniconda3  → 你的conda安装路径
+  - --code 2          → 遗传密码子编号
+  - --refdir /root    → 参考序列目录
+  - --refseqver       → 参考序列版本
+
+
+六、基因名称处理规则
+--------------------------------
+
+1. 自动标准化的别名:
+   coxI → cox1, coxII → cox2, coxIII → cox3
+   cytb → cob, atpase6 → atp6, nd1 → nad1 等
+   rrn12 → rrnS, rrn16 → rrnL
+   单字母 "L" → trnL, "S" → trnS
+
+2. MITOS2控制区标记 (自动跳过):
+   OH-a, OH-c, -OH-b 等控制区注释
+
+3. MITOS2部分注释 (自动保留):
+   -trnP → trnP (去掉前缀的"-"号)
+
+4. 无法识别的基因名:
+   统一标记为 "<UNK>" (未知基因), 参与图构建但不影响主要基因的匹配
+
+
+七、输出文件格式
+--------------------------------
+
+prediction_result.json 示例:
+
+{
+  "query_gene_order": ["cox1", "trnN", "cox2", ...],
+  "predicted_species": "U24570.1",
+  "confidence": 0.1234,
+  "nearest_neighbors": [
+    {"species": "U24570.1",  "distance": 0.5678},
+    {"species": "EF494507.1", "distance": 0.6123},
+    {"species": "KY474378.1", "distance": 0.6789}
+  ]
+}
+
+
+八、注意事项
+--------------------------------
+
+1. 每个物种在参考数据库中只有1条记录, 因此分类准确率意义有限,
+   重点关注"最近邻距离" — 距离越小表示基因顺序越相似。
+
+2. 基因数量不同是正常的 (某些物种的tRNA注释缺失或使用了未知标记)。
+
+3. GCN模型使用 one-hot 节点特征 + 相邻无向边, 模型结构较简单,
+   适合小样本量场景。如需更复杂模型, 可修改 GNNClassifier 类。
+
+4. matplotlib默认使用Agg后端 (不弹窗), 如果需要在Windows上交互显示,
+   注释掉代码中的 matplotlib.use('Agg') 即可。
+
+5. 如果不使用MITOS2 (已有result.geneorder文件), 可以跳过模块2,
+   直接调用模块3-6。
