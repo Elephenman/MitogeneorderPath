@@ -39,10 +39,10 @@ from sklearn.model_selection import train_test_split
 DEFAULT_CSV_PATH = "./geneorder.csv"       # 参考数据库CSV路径
 DEFAULT_OUTPUT_DIR = "./mito_analysis_results/"  # 输出目录
 
-BATCH_SIZE = 8
-HIDDEN_DIM = 16
-EPOCHS = 1000
-LR = 0.01
+BATCH_SIZE = 32
+HIDDEN_DIM = 64
+EPOCHS = 100
+LR = 0.001
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -405,7 +405,7 @@ class GNNClassifier(nn.Module):
 
         x = self.conv1(x, edge_index)
         x = F.relu(x)
-        x = F.dropout(x, p=0.2, training=self.training)
+        x = F.dropout(x, p=0.5, training=self.training)
         x = self.conv2(x, edge_index)
         x = F.relu(x)
 
@@ -454,7 +454,7 @@ def train_gcn_model(ref_db, output_dir=None,
     # 按索引划分训练/验证集
     all_indices = list(range(len(gene_orders)))
     train_idx, val_idx = train_test_split(
-        all_indices, test_size=0.2, random_state=42
+        all_indices, test_size=0.2,  random_state=42
     )
 
     train_orders = [gene_orders[i] for i in train_idx]

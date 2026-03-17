@@ -1,0 +1,60 @@
+{
+  "query_gene_order": [
+    "cox1",
+    "cox2",
+    "trnd",
+    "atp8",
+    "trnq",
+    "trnr",
+    "nad3",
+    "nad5",
+    "trns1",
+    "nad2",
+    "trnf",
+    "trnh",
+    "trnc",
+    "nad1",
+    "trnp",
+    "<UNK>",
+    "trns2",
+    "nad6",
+    "cob",
+    "trnt",
+    "nad4l",
+    "nad4",
+    "trne",
+    "<UNK>",
+    "trnw",
+    "trnm",
+    "rrns",
+    "<UNK>",
+    "rrnL",
+    "trnl1",
+    "trnv",
+    "trnl2",
+    "atp6",
+    "trnn",
+    "trny",
+    "trni",
+    "trna",
+    "trng",
+    "cox3",
+    "trnk"
+  ],
+  "predicted_species": "KT726960.1",
+  "confidence": 0.9989,
+  "nearest_neighbors": [
+    {
+      "species": "KT726960.1",
+      "distance": 0.4491
+    },
+    {
+      "species": "MT822294.1",
+      "distance": 3.5863
+    },
+    {
+      "species": "FJ422961.1",
+      "distance": 3.6301
+    }
+  ]
+}

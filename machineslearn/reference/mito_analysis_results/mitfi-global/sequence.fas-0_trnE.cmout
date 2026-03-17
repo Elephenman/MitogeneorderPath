@@ -1,0 +1,68 @@
+# cmsearch :: search CM(s) against a sequence database
+# INFERNAL 1.1.5 (Sep 2023)
+# Copyright (C) 2023 Howard Hughes Medical Institute.
+# Freely distributed under the BSD open source license.
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# query CM file:                         /root/refseq89o/ncRNA/trnE.cm
+# target sequence database:              ./mito_analysis_results///sequence.fas-0
+# max ASCII text line length:            unlimited
+# sequence reporting threshold:          E-value <= 0.01
+# maximum DP search matrix size:         80000.0 Mb
+# HMM gFwd biased comp filter:           off
+# number of worker threads:              1 [--cpu]
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Query:       trnE  [CLEN=69]
+Hit scores:
+ rank     E-value  score  bias  sequence  start    end   mdl trunc   gc  description
+ ----   --------- ------ -----  -------- ------ ------   --- ----- ----  -----------
+  (1) !   9.7e-06   39.5   0.3  Seq1      13416  13485 +  cm    no 0.29  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+  (2) !   8.8e-05   34.7   1.7  Seq1       9913   9849 -  cm    no 0.22  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+
+
+Hit alignments:
+>> Seq1  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (1) !   9.7e-06   39.5   0.3  cm        1       69 []       13416       13485 + .. 0.93    no 0.29
+
+                                                                 v       v             NC
+             (((((((,,<<<<.._____..>>>>,<<<<<_______>>>>>,,,,<<<<<_______>>>>>))))))): CS
+  trnE     1 gUUcuugUAGUuu..AauUA..aaACAuugcaUUUUCAaugcaaAgGUcuuGgUUAgAaucCaagcaagAAua 69   
+             G:::U::UAGU:U  AA U   A:AC+UU::  UUUCA+ ::AAAG+U::::    G  U ::::::A:::U+
+  Seq1 13416 GCAUUUAUAGUAUaaAAGUUuaAUACGUUAAGGUUUCAUUUUAAAGAUGCAUG---GUGUAAUGCUGAGUGUU 13485
+             *************974444479******************************6...999999*********** PP
+
+>> Seq1  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (2) !   8.8e-05   34.7   1.7  cm        1       69 []        9913        9849 - .. 0.98    no 0.22
+
+                                                                                   NC
+            (((((((,,<<<<_____>>>>,<<<<<___~~~~~>>>>>,,,,<<<<<_______>>>>>))))))): CS
+  trnE    1 gUUcuugUAGUuuAauUAaaACAuugcaUUU*[4]*ugcaaAgGUcuuGgUUAgAaucCaagcaagAAua 69  
+             ::::U:UA:UUUA +UAAAA:A:U:::UUU     :::A:AG+ :::::     + ::::::A:::: A
+  Seq1 9913 CAGAAUAUAGUUUAUAUAAAAUACUAACUUU*[4]*GUUAGAGAAUAAAA----CUAUUUUAUAUUCUGA 9849
+            *****************************97..*..*************9....9999************ PP
+
+
+
+Internal CM pipeline statistics summary:
+----------------------------------------
+Query model(s):                                                  1  (69 consensus positions)
+Target sequences:                                                1  (39412 residues searched)
+Target sequences re-searched for truncated hits:                 1  (788 residues re-searched)
+Windows   passing  local HMM SSV           filter:             156  (0.831); expected (0.35)
+Windows   passing  local HMM Viterbi       filter:                  (off)
+Windows   passing  local HMM Viterbi  bias filter:                  (off)
+Windows   passing  local HMM Forward       filter:              72  (0.4616); expected (0.02)
+Windows   passing  local HMM Forward  bias filter:               8  (0.05219); expected (0.02)
+Windows   passing glocal HMM Forward       filter:               5  (0.04821); expected (0.02)
+Windows   passing glocal HMM Forward  bias filter:                  (off)
+Envelopes passing glocal HMM envelope defn filter:               7  (0.01468); expected (0.02)
+Envelopes passing  local CM  CYK           filter:               3  (0.005746); expected (0.0001)
+Total CM hits reported:                                          2  (0.003358); includes 0 truncated hit(s)
+
+# CPU time: 0.07u 0.01s 00:00:00.08 Elapsed: 00:00:00.08
+//
+[ok]

@@ -1,0 +1,94 @@
+# cmsearch :: search CM(s) against a sequence database
+# INFERNAL 1.1.5 (Sep 2023)
+# Copyright (C) 2023 Howard Hughes Medical Institute.
+# Freely distributed under the BSD open source license.
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+# query CM file:                         /root/refseq89o/ncRNA/trnH.cm
+# target sequence database:              ./mito_analysis_results///sequence.fas-0
+# max ASCII text line length:            unlimited
+# sequence reporting threshold:          E-value <= 0.01
+# maximum DP search matrix size:         80000.0 Mb
+# HMM gFwd biased comp filter:           off
+# number of worker threads:              1 [--cpu]
+# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+Query:       trnH  [CLEN=68]
+Hit scores:
+ rank     E-value  score  bias  sequence  start    end   mdl trunc   gc  description
+ ----   --------- ------ -----  -------- ------ ------   --- ----- ----  -----------
+  (1) !   8.4e-08   52.9   1.5  Seq1       8745   8809 +  cm    no 0.23  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+  (2) !   1.4e-05   41.1   3.4  Seq1       4850   4915 +  cm    no 0.21  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+  (3) !   2.6e-05   39.7   1.7  Seq1       9913   9849 -  cm    no 0.22  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+  (4) !    0.0072   26.8  10.0  Seq1       1395   1456 +  cm    no 0.15  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+
+
+Hit alignments:
+>> Seq1  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (1) !   8.4e-08   52.9   1.5  cm        1       68 []        8745        8809 + .. 0.97    no 0.23
+
+                     v             v                                             NC
+            (((((((,,<<<<_______>>>>,<<<<<_______>>>>>,,,,<<<<<____>>>>>))))))): CS
+  trnH    1 guuaaaaUAgUUUAAauuuAAAAcAuUaGaUUGUGGuuCuAaAGAUauaagAAaucuuauuuuuaacc 68  
+            GU:AAA:UA UUUA A  +AAAA AU:A AUUGUGGUU U:AAGA A AA:  A :UU U:UUU:AC 
+  Seq1 8745 GUCAAAGUAUUUUAUA--AAAAAUAUCAUAUUGUGGUUGUGAAGAAAUAAAGUA-UUUGUCUUUGACA 8809
+            *************777..*********************************777.8************ PP
+
+>> Seq1  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (2) !   1.4e-05   41.1   3.4  cm        1       68 []        4850        4915 + .. 0.99    no 0.21
+
+                                     v   v       v   v       v      v            NC
+            (((((((,,<<<<_______>>>>,<<<<<_______>>>>>,,,,<<<<<____>>>>>))))))): CS
+  trnH    1 guuaaaaUAgUUUAAauuuAAAAcAuUaGaUUGUGGuuCuAaAGAUauaagAAaucuuauuuuuaacc 68  
+             ::AA::UA:UUUAAAU +AAAA:  UAG UUGU +U CUA AGAUA:: :   U: ::U::UU:: +
+  Seq1 4850 GAAAAGUUAGUUUAAAUGAAAAAUUUUAGUUUGUCAUUCUAUAGAUACUGA--GUUAAGUACUUUUUU 4915
+            **********************************999**************..99************* PP
+
+>> Seq1  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (3) !   2.6e-05   39.7   1.7  cm        1       68 []        9913        9849 - .. 0.91    no 0.22
+
+                                                                                 NC
+            (((((((,,<<<<_______>>>>,<<<<<__~~~~~>>>>>,,,,<<<<<____>>>>>))))))): CS
+  trnH    1 guuaaaaUAgUUUAAauuuAAAAcAuUaGaUU*[5]*uCuAaAGAUauaagAAaucuuauuuuuaacc 68  
+             ::AA:AUA:UUUA A  UAAAA:A:UA::UU     ::UA:AGA ::AA:  + :UU::U:UU::  
+  Seq1 9913 CAGAAUAUAGUUUAUA--UAAAAUACUAACUU*[5]*GUUAGAGAAUAAAA-CUAUUUUAUAUUCUGA 9849
+            *************888..*************9..5..**************.4459************ PP
+
+>> Seq1  [organism=Owenia] Owenia hongkongensis n. sp.  voucher HK_Owenia_20114_004 mitochondrion, complete genome
+ rank     E-value  score  bias mdl mdl from   mdl to       seq from      seq to       acc trunc   gc
+ ----   --------- ------ ----- --- -------- --------    ----------- -----------      ---- ----- ----
+  (4) !    0.0072   26.8  10.0  cm        1       68 []        1395        1456 + .. 0.91    no 0.15
+
+                                                              v    v             NC
+            (((((((,,<<<<_______>>>>,<<<<<_______>>>>>,,,,<<<<<____>>>>>))))))): CS
+  trnH    1 guuaaaaUAgUUUAAauuuAAAAcAuUaGaUUGUGGuuCuAaAGAUauaagAAaucuuauuuuuaacc 68  
+            :U::A AUA:UUUAAA  +AAAA:+UUA:AUUGU ++U:UAAA  U:::A   +  U:::U U::A: 
+  Seq1 1395 AUAUA-AUAAUUUAAA--AAAAAUGUUAAAUUGUAAAUUUAAACUUGAGAA--UGGUCUCU-UAUAUA 1456
+            **987.69********..****************************99987..55789996.789*** PP
+
+
+
+Internal CM pipeline statistics summary:
+----------------------------------------
+Query model(s):                                                  1  (68 consensus positions)
+Target sequences:                                                1  (39412 residues searched)
+Target sequences re-searched for truncated hits:                 1  (520 residues re-searched)
+Windows   passing  local HMM SSV           filter:             262  (0.9373); expected (0.35)
+Windows   passing  local HMM Viterbi       filter:                  (off)
+Windows   passing  local HMM Viterbi  bias filter:                  (off)
+Windows   passing  local HMM Forward       filter:             175  (0.7088); expected (0.02)
+Windows   passing  local HMM Forward  bias filter:              28  (0.1191); expected (0.02)
+Windows   passing glocal HMM Forward       filter:              15  (0.1153); expected (0.02)
+Windows   passing glocal HMM Forward  bias filter:                  (off)
+Envelopes passing glocal HMM envelope defn filter:              15  (0.02965); expected (0.02)
+Envelopes passing  local CM  CYK           filter:               4  (0.006787); expected (0.0001)
+Total CM hits reported:                                          4  (0.006461); includes 0 truncated hit(s)
+
+# CPU time: 0.08u 0.00s 00:00:00.08 Elapsed: 00:00:00.08
+//
+[ok]
