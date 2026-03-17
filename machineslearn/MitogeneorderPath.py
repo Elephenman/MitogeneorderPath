@@ -25,7 +25,7 @@ matplotlib.use('Agg')  # 非交互式后端，适配无显示器的Linux服务�
 import matplotlib.pyplot as plt
 
 import torch
-import torch.nn as nn
+import torch.nn as nn 
 import torch.nn.functional as F
 from torch_geometric.data import Data, DataLoader
 from torch_geometric.nn import GCNConv, global_mean_pool
