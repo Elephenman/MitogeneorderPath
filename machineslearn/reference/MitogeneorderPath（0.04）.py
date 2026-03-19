@@ -835,60 +835,6 @@ def load_trained_model(model_path, filtered_index):
 # 模块9：完整基因顺序相似度计算（第二步判断核心）
 # ============================================================
 
-def compute_trna_gap_similarity(query_order, ref_order, core_genes_set):
-    """
-    基于核心基因骨架的 tRNA 插入位置相似度。
-    现在会先将核心序列以 cox1 对齐，再划分 gap，从而正确处理环状基因组起点差异。
-    """
-    def align_to_cox1(core_seq):
-        if "cox1" in core_seq:
-            idx = core_seq.index("cox1")
-            return core_seq[idx:] + core_seq[:idx]
-        return core_seq
-
-    # 提取并以 cox1 对齐核心序列
-    q_core = align_to_cox1([g for g in query_order if g in core_genes_set])
-    r_core = align_to_cox1([g for g in ref_order if g in core_genes_set])
-
-    # 如果核心基因顺序不一致，降级为 tRNA 集合 Jaccard 相似度
-    if q_core != r_core:
-        # 标准化 tRNA 名称（如 trnS1 -> trnS, trnL2 -> trnL）
-        q_trnas = {g.split('(')[0].rstrip('12') for g in query_order if g.startswith('trn')}
-        r_trnas = {g.split('(')[0].rstrip('12') for g in ref_order if g.startswith('trn')}
-        if not q_trnas and not r_trnas:
-            return 1.0
-        union = q_trnas | r_trnas
-        return len(q_trnas & r_trnas) / len(union) if union else 0.0
-
-    # 核心一致：按 gap 位置比对 tRNA
-    def extract_gaps(gene_order, aligned_core):
-        gaps = [set() for _ in range(len(aligned_core) + 1)]
-        gene_to_index = {gene: i for i, gene in enumerate(aligned_core)}
-        current_gap = 0
-        for gene in gene_order:
-            if gene in gene_to_index:
-                current_gap = gene_to_index[gene] + 1
-            elif gene.startswith("trn"):
-                base_name = gene.split('(')[0].rstrip('12')  # trnS1 → trnS
-                gaps[current_gap].add(base_name)
-        return gaps
-
-    q_gaps = extract_gaps(query_order, q_core)
-    r_gaps = extract_gaps(ref_order, r_core)
-
-    similarities = []
-    for gap_q, gap_r in zip(q_gaps, r_gaps):
-        if not gap_q and not gap_r:
-            similarities.append(1.0)
-        elif not gap_q or not gap_r:
-            similarities.append(0.0)
-        else:
-            inter = gap_q & gap_r
-            union = gap_q | gap_r
-            similarities.append(len(inter) / len(union))
-    
-    return sum(similarities) / len(similarities) if similarities else 0.0
-
 def full_gene_order_similarity(query_order, ref_order, core_genes_set):
     """
     计算两条完整基因顺序（含tRNA）的加权相似度。
@@ -901,55 +847,69 @@ def full_gene_order_similarity(query_order, ref_order, core_genes_set):
 
     返回 dict(score, core_similarity, trna_similarity, ...)
     """
-    def align_to_cox1(core_seq):
-        """将核心基因序列以 cox1 为起点旋转；若无 cox1，保持原序"""
-        if "cox1" in core_seq:
-            idx = core_seq.index("cox1")
-            return core_seq[idx:] + core_seq[:idx]
-        return core_seq
+    W_CORE = 3.0      # 核心基因匹配权重
+    W_TRNA = 1.0       # tRNA匹配权重
 
-    # === Step 1: 提取核心基因并以 cox1 对齐（解决环状起点错位）===
-    q_core_raw = [g for g in query_order if g in core_genes_set]
-    r_core_raw = [g for g in ref_order if g in core_genes_set]
-    
-    q_core = align_to_cox1(q_core_raw)
-    r_core = align_to_cox1(r_core_raw)
+    q_len = len(query_order)
+    r_len = len(ref_order)
+    max_len = max(q_len, r_len)
 
-    core_match_count = sum(1 for a, b in zip(q_core, r_core) if a == b)
-    core_total_count = max(len(q_core), len(r_core), 1)
-    core_sim = core_match_count / core_total_count
+    if max_len == 0:
+        return {"score": 1.0, "core_similarity": 1.0, "trna_similarity": 1.0,
+                "core_match": 0, "core_total": 0,
+                "trna_match": 0, "trna_total": 0}
 
-    # === Step 2: tRNA 相似度（基于对齐后的逻辑，在 compute_trna_gap_similarity 中实现）===
-    trna_sim = compute_trna_gap_similarity(query_order, ref_order, core_genes_set)
+    core_score = 0.0
+    core_total = 0
+    trna_score = 0.0
+    trna_total = 0
 
-    # === Step 3: 组合得分（核心为主）===
-    score = core_sim * 0.95 + trna_sim * 0.05
-    length_penalty = 1.0
+    for i in range(min(q_len, r_len)):
+        q_gene = query_order[i]
+        r_gene = ref_order[i]
+        if q_gene == UNKNOWN_GENE or r_gene == UNKNOWN_GENE:
+            continue
+        q_is_core = q_gene in core_genes_set
+        r_is_core = r_gene in core_genes_set
+        if q_gene == r_gene:
+            if q_is_core:
+                core_score += W_CORE
+                core_total += W_CORE
+            else:
+                trna_score += W_TRNA
+                trna_total += W_TRNA
+        else:
+            if q_is_core and r_is_core:
+                core_total += W_CORE
+            elif not q_is_core and not r_is_core:
+                trna_total += W_TRNA
 
-    # === 兼容原返回字段（trna_match/total 为近似值）===
+    length_penalty = 1.0 - abs(q_len - r_len) / max_len * 0.3
+    core_sim = core_score / max(core_total, 1e-8)
+    trna_sim = trna_score / max(trna_total, 1e-8)
+    combined_sim = (core_sim * 0.6 + trna_sim * 0.4) * length_penalty
+
     return {
-        "score": round(score, 4),
+        "score": round(combined_sim, 4),
         "core_similarity": round(core_sim, 4),
         "trna_similarity": round(trna_sim, 4),
         "length_penalty": round(length_penalty, 4),
-        "core_match": int(core_match_count),
-        "core_total": int(core_total_count),
-        "trna_match": int(trna_sim * 100),  # 近似，保持字段存在
-        "trna_total": 100,                  # 近似，保持字段存在
+        "core_match": int(core_score / W_CORE) if W_CORE > 0 else 0,
+        "core_total": int(core_total),
+        "trna_match": int(trna_score / W_TRNA) if W_TRNA > 0 else 0,
+        "trna_total": int(trna_total),
     }
-# ============================================================
-# 模块10：两步判断物种预测与最近邻检索
-# ============================================================
+
 
 # ============================================================
-# 模块10：两步判断物种预测与最近邻检索（修复版）
+# 模块10：两步判断物种预测与最近邻检索
 # ============================================================
 
 def predict_species(query_gene_order, query_full_order, filtered_index, ref_db,
                     model, species_list, train_dataset, top_k=5):
     """
-    两步判断物种检索（修复版）：
-    第一步（主判断）：优先筛选15核心基因完全匹配的物种 → 再用GCN嵌入补充候选
+    两步判断物种检索：
+    第一步（主判断）：15核心基因 GCN嵌入 + 对比学习，筛选候选集
     第二步（精细判断）：完整基因顺序（含tRNA）精确匹配，精细排序
 
     参数:
@@ -966,11 +926,11 @@ def predict_species(query_gene_order, query_full_order, filtered_index, ref_db,
     """
     core_gene_to_idx = filtered_index["core_gene_to_idx"]
     core_genes_set = set(CORE_GENES)
-    
-    # ========== 第一步：15核心基因主判断（修复核心逻辑） ==========
+
+    # ========== 第一步：15核心基因主判断（GCN嵌入 + 核心顺序匹配） ==========
     print(f"\n  [第一步] 15核心基因主判断...")
-    
-    # 1.1 计算查询样本的GCN嵌入（用余弦距离，和对比学习保持一致）
+
+    # 1.1 GCN嵌入距离
     query_graph = genes_to_graph(query_gene_order, core_gene_to_idx)
     query_graph = query_graph.to(DEVICE)
     query_graph.batch = torch.zeros(
@@ -979,9 +939,8 @@ def predict_species(query_gene_order, query_full_order, filtered_index, ref_db,
 
     model.eval()
     with torch.no_grad():
-        query_embedding = model(query_graph)  # 保留tensor，用于余弦距离计算
+        query_embedding = model(query_graph).cpu().numpy()
 
-    # 计算训练集所有样本的嵌入 & 余弦距离（1 - 点积，和对比学习Loss一致）
     train_embeddings = []
     with torch.no_grad():
         for data in train_dataset:
@@ -989,111 +948,142 @@ def predict_species(query_gene_order, query_full_order, filtered_index, ref_db,
             data.batch = torch.zeros(
                 data.x.size(0), dtype=torch.long, device=DEVICE
             )
-            embed = model(data)
+            embed = model(data).cpu().numpy()
             train_embeddings.append(embed)
-    train_embeddings = torch.cat(train_embeddings, dim=0)
-    
-    # 余弦距离计算（1 - 点积，值越小越相似）
-    cosine_distances = 1 - torch.mm(query_embedding, train_embeddings.t()).squeeze(0)
-    cosine_distances = cosine_distances.cpu().numpy().tolist()
+    train_embeddings = np.vstack(train_embeddings)
 
-    # 1.2 核心基因顺序精确匹配度计算（补全缺失的逻辑）
+    gcn_distances = np.linalg.norm(train_embeddings - query_embedding, axis=1)
+
+    # 1.2 核心15基因顺序逐位匹配度
     core_order_sims = []
-    exact_match_species = []  # 存储核心基因完全匹配的物种
     for i in range(len(species_list)):
         sp = species_list[i]
         ref_filtered = filtered_index["filtered_species_genes"].get(sp, [])
-        
-        # 对齐长度（短序列补空值，避免长度不一致导致匹配错误）
-        q_len = len(query_gene_order)
-        r_len = len(ref_filtered)
-        max_len = max(q_len, r_len)
-        
-        # 补全短序列（用空字符串填充）
-        q_padded = query_gene_order + [""] * (max_len - q_len)
-        r_padded = ref_filtered + [""] * (max_len - r_len)
-        
-        # 逐位匹配计数
-        matches = sum(1 for a, b in zip(q_padded, r_padded) if a == b)
-        core_sim = matches / max_len if max_len > 0 else 0.0
-        core_order_sims.append(core_sim)
-        
-        # 标记核心基因完全匹配的物种
-        if core_sim == 1.0:
-            exact_match_species.append((sp, i))
-
-    # 1.3 第一步候选集筛选（优先完全匹配 → 补充GCN近邻）
-    candidate_indices = set()
-    
-    # 优先加入核心基因完全匹配的物种
-    if exact_match_species:
-        print(f"   找到 {len(exact_match_species)} 个核心基因完全匹配的物种:")
-        for sp, idx in exact_match_species:
-            print(f"    - {sp}")
-            candidate_indices.add(idx)
-    else:
-        # 无完全匹配时，取GCN距离最小的前20个作为候选
-        gcn_top_indices = np.argsort(cosine_distances)[:20]
-        candidate_indices.update(gcn_top_indices)
-        print(f"  无核心基因完全匹配物种，取GCN距离前20个作为候选")
-
-    # 确保候选集数量（至少top_k*2，避免后续筛选不足）
-    if len(candidate_indices) < top_k * 2:
-        # 补充GCN距离最近的样本，直到满足数量
-        all_sorted_indices = np.argsort(cosine_distances)
-        for idx in all_sorted_indices:
-            if idx not in candidate_indices:
-                candidate_indices.add(idx)
-                if len(candidate_indices) >= top_k * 2:
-                    break
-
-    candidate_indices = list(candidate_indices)
-
-    # ========== 第二步：完整基因顺序精细判断 ==========
-    print(f"\n  [第二步] 完整基因顺序精细判断（候选数：{len(candidate_indices)}）...")
-    similarity_results = []
-    
-    for idx in candidate_indices:
-        sp = species_list[idx]
-        ref_full_order = ref_db["species_genes"].get(sp, [])
-        
-        # 计算完整基因顺序相似度（含tRNA）
-        sim_info = full_gene_order_similarity(
-            query_full_order, ref_full_order, core_genes_set
+        max_len = max(len(query_gene_order), len(ref_filtered))
+        if max_len == 0:
+            core_order_sims.append(1.0)
+            continue
+        matches = sum(
+            1 for a, b in zip(query_gene_order, ref_filtered) if a == b
         )
-        
-        # 整合第一步的GCN距离和核心匹配度
-        sim_info.update({
-            "species": sp,
-            "core_order_sim": float(core_order_sims[idx]),
-            "gcn_distance": float(cosine_distances[idx]),
-            "index": float(idx)
-        })
-        similarity_results.append(sim_info)
+        core_order_sims.append(matches / max_len)
 
-    # 2.1 相似度排序（核心相似度优先 → 完整得分次之 → GCN距离最后）
-    similarity_results.sort(
-        key=lambda x: (-x["core_order_sim"], -x["score"], x["gcn_distance"])
+    # 1.3 判断哪些物种与查询共享相同核心基因排列
+    query_core_key = gene_order_to_key(query_gene_order)
+    same_core_order_mask = np.array([
+        1.0 if gene_order_to_key(
+            filtered_index["filtered_species_genes"].get(sp, [])
+        ) == query_core_key else 0.0
+        for sp in species_list
+    ])
+    same_core_count = int(same_core_order_mask.sum())
+
+    exact_core_matches = [
+        species_list[i] for i in range(len(species_list))
+        if same_core_order_mask[i] > 0.5
+    ]
+
+    # ========== 第二步：完整基因顺序精细判断（含tRNA） ==========
+    print(f"  [第二步] 完整基因顺序精细判断（含tRNA）...")
+
+    full_order_sims = []
+    full_order_details = []
+    for i in range(len(species_list)):
+        sp = species_list[i]
+        if sp not in ref_db["species_genes"]:
+            full_order_sims.append(0.0)
+            full_order_details.append(None)
+            continue
+        ref_full = ref_db["species_genes"][sp]
+        sim_result = full_gene_order_similarity(
+            query_full_order, ref_full, core_genes_set
+        )
+        full_order_sims.append(sim_result["score"])
+        full_order_details.append(sim_result)
+
+    # ========== 综合排序 ==========
+    gcn_dist_norm = gcn_distances / (gcn_distances.max() + 1e-8)
+    core_sim_arr = np.array(core_order_sims)
+    full_sim_arr = np.array(full_order_sims)
+
+    # 综合得分策略:
+    #   核心基因顺序完全相同的物种（same_core_order_mask=1）:
+    #     主要靠完整基因顺序（含tRNA）区分 → full_sim权重高
+    #   核心基因顺序不同的物种:
+    #     主要靠核心基因匹配 + GCN距离
+    combined_score = np.where(
+        same_core_order_mask > 0.5,
+        # 同核心排列: full_sim为主（0.8），gcn距离为辅（0.2）
+        full_sim_arr * 0.8 - gcn_dist_norm * 0.2,
+        # 不同核心排列: core_sim为主（0.4），gcn距离（0.35），full_sim辅（0.25）
+        core_sim_arr * 0.4 - gcn_dist_norm * 0.35 + full_sim_arr * 0.25,
     )
 
-    # 2.2 取Top-K结果
-    top_results = similarity_results[:top_k]
-    predicted_species = top_results[0]["species"] if top_results else "Unknown"
+    nearest_indices = np.argsort(combined_score)[:top_k]
 
-    # ========== 结果输出 ==========
-    print(f"\n   最终Top-{top_k}匹配结果:")
-    for i, res in enumerate(top_results, 1):
-        print(f"    {i}. {res['species']}")
-        print(f"       - 核心基因匹配度: {res['core_order_sim']:.1%}")
-        print(f"       - 完整基因相似度: {res['score']:.1%}")
-        print(f"       - GCN余弦距离: {res['gcn_distance']:.4f}")
+    nearest_neighbors = []
+    for idx in nearest_indices:
+        sp = species_list[idx]
+        nn = {
+            "species": sp,
+            "step1_gcn_distance": round(float(gcn_distances[idx]), 4),
+            "step1_core_similarity": round(float(core_order_sims[idx]), 4),
+            "step2_full_similarity": round(float(full_order_sims[idx]), 4),
+            "same_core_order": bool(same_core_order_mask[idx] > 0.5),
+            "combined_score": round(float(combined_score[idx]), 4),
+        }
+        if full_order_details[idx] is not None:
+            nn["step2_core_detail"] = full_order_details[idx]["core_similarity"]
+            nn["step2_trna_detail"] = full_order_details[idx]["trna_similarity"]
+        nearest_neighbors.append(nn)
 
-    return {
-    "predicted_species": predicted_species,
-    "nearest_neighbors": top_results,  # 改为返回完整的字典列表
-    "similarity_info": top_results,
-    "exact_match_species": [sp for sp, _ in exact_match_species]
-}
+    predicted_species = nearest_neighbors[0]["species"]
+    best_full_sim = nearest_neighbors[0]["step2_full_similarity"]
+    best_core_sim = nearest_neighbors[0]["step1_core_similarity"]
+    best_dist = nearest_neighbors[0]["step1_gcn_distance"]
+
+    result = {
+        "predicted_species": predicted_species,
+        "step1_same_core_order_species": exact_core_matches[:10],
+        "step1_same_core_count": same_core_count,
+        "nearest_neighbors": nearest_neighbors,
+        "similarity_info": {
+            "step1_best_gcn_distance": round(float(best_dist), 4),
+            "step1_best_core_similarity": round(float(best_core_sim), 4),
+            "step2_best_full_similarity": round(float(best_full_sim), 4),
+            "same_core_order_count": same_core_count,
+        },
+    }
+
+    # ========== 输出结果 ==========
+    print(f"\n[模块10] 两步判断预测结果")
+    print(f"  第一步: 15核心基因主判断")
+    print(f"    GCN最佳距离    : {best_dist:.4f}")
+    print(f"    核心排列匹配度 : {best_core_sim:.4f} ({int(best_core_sim*100)}%)")
+    if same_core_count > 1:
+        print(f"    ⚠ {same_core_count} 个物种共享相同核心基因排列:")
+        for sp in exact_core_matches[:5]:
+            print(f"      - {sp}")
+        if len(exact_core_matches) > 5:
+            print(f"      - ... 共{same_core_count}个")
+    print(f"  第二步: 完整基因顺序精细判断（含tRNA）")
+    print(f"    完整排列相似度 : {best_full_sim:.4f} ({int(best_full_sim*100)}%)")
+    if same_core_count > 1:
+        print(f"    → 已通过tRNA排列差异进一步区分同核心排列物种")
+
+    print(f"\n  最终最近邻 {top_k}:")
+    print(f"  {'排名':>4} {'物种ID':<14} {'GCN距离':>8} {'核心匹配':>8} "
+          f"{'全基因匹配':>10} {'同核心排列':>10} {'综合得分':>10}")
+    print(f"  {'-'*66}")
+    for i, nn in enumerate(nearest_neighbors, 1):
+        same_flag = "✓" if nn["same_core_order"] else " "
+        print(f"  {i:>4} {nn['species']:<14} {nn['step1_gcn_distance']:>8.4f} "
+              f"{nn['step1_core_similarity']:>8.4f} "
+              f"{nn['step2_full_similarity']:>10.4f} "
+              f"{same_flag:>10} {nn['combined_score']:>10.4f}")
+
+    return result
+
 
 # ============================================================
 # 模块10：基因顺序可视化比对
