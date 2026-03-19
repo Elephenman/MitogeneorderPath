@@ -5,19 +5,28 @@ MitogeneorderPath - 基于线粒体基因组基因排列顺序的物种鉴定工
 基于101个物种的线粒体基因组基因排列顺序进行物种鉴定和进化关系分析。
 
 核心特点:
-  - 仅使用15个核心基因（13个蛋白编码基因 + 2个rRNA）构建模型
+  - 使用15个核心基因（13个蛋白编码基因 + 2个rRNA）进行主判断筛选
+  - 使用完整基因顺序（含tRNA）进行二次精细判断，解决同排列物种区分问题
   - GCN嵌入 + 对比学习 + 最近邻检索（非分类范式）
   - 支持加载已有训练模型，跳过训练步骤
   - 支持直接上传已有基因顺序文件，跳过MITOS2注释步骤
   - 自动检测/引导安装MITOS2环境
 
-方法说明:
+方法说明（两步判断策略）:
   由于多毛类动物线粒体基因中，15个核心基因排列高度保守
   （101个物种中仅有27种不同排列，其中67个物种共享相同排列），
-  传统分类方法无法有效区分。本工具采用 GCN 嵌入 + 对比学习：
-  1. GCN 将基因顺序编码为低维嵌入向量
-  2. 对比学习使相同排列的样本靠近、不同排列的远离
-  3. 预测时通过嵌入距离 + 基因顺序匹配度综合排序
+  单靠15基因无法有效区分所有物种。本工具采用两步判断：
+
+  第一步（主判断）：15核心基因 GCN嵌入 + 对比学习
+    1. GCN 将15核心基因顺序编码为低维嵌入向量
+    2. 对比学习使相同排列的样本靠近、不同排列的远离
+    3. 通过嵌入距离筛选候选物种集
+
+  第二步（精细判断）：完整基因顺序（含tRNA）精确匹配
+    1. 对第一步候选集内的物种，用完整基因顺序（含tRNA）计算匹配度
+    2. 考虑基因位置一致性和tRNA排列差异
+    3. 综合排序输出最终结果
+
   4. 输出最近邻物种及基因顺序匹配百分比
 
 模块说明（均可独立调用）:
@@ -31,8 +40,9 @@ MitogeneorderPath - 基于线粒体基因组基因排列顺序的物种鉴定工
   8. filter_gene_order()         - 基因顺序过滤（仅保留15个核心基因）
   9. train_gcn_model()           - GCN对比学习训练
   10. load_trained_model()       - 加载已有训练模型
-  11. predict_species()          - 物种最近邻检索
-  12. plot_comparison()          - 基因顺序可视化比对
+  11. predict_species()          - 两步判断物种检索（15基因主判 + 全基因精判）
+  12. full_gene_order_similarity() - 完整基因顺序相似度计算
+  13. plot_comparison()          - 基因顺序可视化比对
 
 依赖:
   pip install numpy pandas torch torch_geometric scikit-learn matplotlib
@@ -377,7 +387,7 @@ def run_mitos(input_fasta, out_dir):
         'bash -c \''
         'source /root/miniconda3/etc/profile.d/conda.sh && '
         'conda activate mitos2 && '
-        f'runmitos --input {input_fasta} --code 2 '
+        f'runmitos --input {input_fasta} --code 5 '
         f'--outdir {out_dir} --refdir /root --refseqver refseq89o'
         '\''
     )
@@ -822,20 +832,105 @@ def load_trained_model(model_path, filtered_index):
 
 
 # ============================================================
-# 模块9：物种预测与最近邻检索
+# 模块9：完整基因顺序相似度计算（第二步判断核心）
 # ============================================================
 
-def predict_species(query_gene_order, filtered_index, model, species_list,
-                    train_dataset, top_k=5):
+def full_gene_order_similarity(query_order, ref_order, core_genes_set):
     """
-    对查询核心基因顺序进行最近邻物种检索。
-    使用GCN嵌入距离 + 基因顺序编辑距离综合排序。
+    计算两条完整基因顺序（含tRNA）的加权相似度。
+    核心基因（13 PCGs + 2 rRNAs）匹配权重高于tRNA。
+
+    参数:
+        query_order: 查询样本完整基因顺序
+        ref_order: 参考样本完整基因顺序
+        core_genes_set: 核心基因集合（set）
+
+    返回 dict(score, core_similarity, trna_similarity, ...)
+    """
+    W_CORE = 3.0      # 核心基因匹配权重
+    W_TRNA = 1.0       # tRNA匹配权重
+
+    q_len = len(query_order)
+    r_len = len(ref_order)
+    max_len = max(q_len, r_len)
+
+    if max_len == 0:
+        return {"score": 1.0, "core_similarity": 1.0, "trna_similarity": 1.0,
+                "core_match": 0, "core_total": 0,
+                "trna_match": 0, "trna_total": 0}
+
+    core_score = 0.0
+    core_total = 0
+    trna_score = 0.0
+    trna_total = 0
+
+    for i in range(min(q_len, r_len)):
+        q_gene = query_order[i]
+        r_gene = ref_order[i]
+        if q_gene == UNKNOWN_GENE or r_gene == UNKNOWN_GENE:
+            continue
+        q_is_core = q_gene in core_genes_set
+        r_is_core = r_gene in core_genes_set
+        if q_gene == r_gene:
+            if q_is_core:
+                core_score += W_CORE
+                core_total += W_CORE
+            else:
+                trna_score += W_TRNA
+                trna_total += W_TRNA
+        else:
+            if q_is_core and r_is_core:
+                core_total += W_CORE
+            elif not q_is_core and not r_is_core:
+                trna_total += W_TRNA
+
+    length_penalty = 1.0 - abs(q_len - r_len) / max_len * 0.3
+    core_sim = core_score / max(core_total, 1e-8)
+    trna_sim = trna_score / max(trna_total, 1e-8)
+    combined_sim = (core_sim * 0.6 + trna_sim * 0.4) * length_penalty
+
+    return {
+        "score": round(combined_sim, 4),
+        "core_similarity": round(core_sim, 4),
+        "trna_similarity": round(trna_sim, 4),
+        "length_penalty": round(length_penalty, 4),
+        "core_match": int(core_score / W_CORE) if W_CORE > 0 else 0,
+        "core_total": int(core_total),
+        "trna_match": int(trna_score / W_TRNA) if W_TRNA > 0 else 0,
+        "trna_total": int(trna_total),
+    }
+
+
+# ============================================================
+# 模块10：两步判断物种预测与最近邻检索
+# ============================================================
+
+def predict_species(query_gene_order, query_full_order, filtered_index, ref_db,
+                    model, species_list, train_dataset, top_k=5):
+    """
+    两步判断物种检索：
+    第一步（主判断）：15核心基因 GCN嵌入 + 对比学习，筛选候选集
+    第二步（精细判断）：完整基因顺序（含tRNA）精确匹配，精细排序
+
+    参数:
+        query_gene_order: 查询样本的15核心基因顺序
+        query_full_order: 查询样本的完整基因顺序（含tRNA）
+        filtered_index: 15基因过滤索引
+        ref_db: 参考数据库（含完整基因顺序）
+        model: 训练好的GCN模型
+        species_list: 物种列表
+        train_dataset: 训练数据集
+        top_k: 返回的最近邻数量
 
     返回 dict(predicted_species, nearest_neighbors, similarity_info)
     """
     core_gene_to_idx = filtered_index["core_gene_to_idx"]
+    core_genes_set = set(CORE_GENES)
 
-    # 1. GCN嵌入距离
+    # ========== 第一步：15核心基因主判断（GCN嵌入 + 核心顺序匹配） ==========
+    print(f"\n  [第一步] 15核心基因主判断...")
+
+    # 1.1 GCN嵌入距离
     query_graph = genes_to_graph(query_gene_order, core_gene_to_idx)
     query_graph = query_graph.to(DEVICE)
     query_graph.batch = torch.zeros(
@@ -859,82 +954,133 @@ def predict_species(query_gene_order, filtered_index, model, species_list,
 
     gcn_distances = np.linalg.norm(train_embeddings - query_embedding, axis=1)
 
-    # 2. 基因顺序相似度（直接比对）
-    # 计算查询与每个参考的基因顺序匹配度
-    order_similarities = []
+    # 1.2 核心15基因顺序逐位匹配度
+    core_order_sims = []
     for i in range(len(species_list)):
-        ref_order = train_dataset[i].x.argmax(dim=1).tolist()
-        # 转回基因名
-        core_genes = filtered_index["core_genes"]
-        ref_genes = [core_genes[idx] if idx < len(core_genes) else "?" for idx in ref_order]
-        # 计算位置匹配率（以较长的为基准）
-        max_len = max(len(query_gene_order), len(ref_genes))
+        sp = species_list[i]
+        ref_filtered = filtered_index["filtered_species_genes"].get(sp, [])
+        max_len = max(len(query_gene_order), len(ref_filtered))
         if max_len == 0:
-            order_similarities.append(1.0)
+            core_order_sims.append(1.0)
             continue
         matches = sum(
-            1 for a, b in zip(query_gene_order, ref_genes) if a == b
+            1 for a, b in zip(query_gene_order, ref_filtered) if a == b
         )
-        order_similarities.append(matches / max_len)
+        core_order_sims.append(matches / max_len)
 
-    # 3. 综合排序（GCN距离为主，基因顺序相似度为辅）
-    # 归一化
+    # 1.3 判断哪些物种与查询共享相同核心基因排列
+    query_core_key = gene_order_to_key(query_gene_order)
+    same_core_order_mask = np.array([
+        1.0 if gene_order_to_key(
+            filtered_index["filtered_species_genes"].get(sp, [])
+        ) == query_core_key else 0.0
+        for sp in species_list
+    ])
+    same_core_count = int(same_core_order_mask.sum())
+
+    exact_core_matches = [
+        species_list[i] for i in range(len(species_list))
+        if same_core_order_mask[i] > 0.5
+    ]
+
+    # ========== 第二步：完整基因顺序精细判断（含tRNA） ==========
+    print(f"  [第二步] 完整基因顺序精细判断（含tRNA）...")
+
+    full_order_sims = []
+    full_order_details = []
+    for i in range(len(species_list)):
+        sp = species_list[i]
+        if sp not in ref_db["species_genes"]:
+            full_order_sims.append(0.0)
+            full_order_details.append(None)
+            continue
+        ref_full = ref_db["species_genes"][sp]
+        sim_result = full_gene_order_similarity(
+            query_full_order, ref_full, core_genes_set
+        )
+        full_order_sims.append(sim_result["score"])
+        full_order_details.append(sim_result)
+
+    # ========== 综合排序 ==========
     gcn_dist_norm = gcn_distances / (gcn_distances.max() + 1e-8)
-    order_sim_arr = np.array(order_similarities)
+    core_sim_arr = np.array(core_order_sims)
+    full_sim_arr = np.array(full_order_sims)
 
-    # 综合得分：GCN距离越小越好，顺序相似度越高越好
-    combined_score = gcn_dist_norm - order_sim_arr * 0.3
+    # 综合得分策略:
+    #   核心基因顺序完全相同的物种（same_core_order_mask=1）:
+    #     主要靠完整基因顺序（含tRNA）区分 → full_sim权重高
+    #   核心基因顺序不同的物种:
+    #     主要靠核心基因匹配 + GCN距离
+    combined_score = np.where(
+        same_core_order_mask > 0.5,
+        # 同核心排列: full_sim为主（0.8），gcn距离为辅（0.2）
+        full_sim_arr * 0.8 - gcn_dist_norm * 0.2,
+        # 不同核心排列: core_sim为主（0.4），gcn距离（0.35），full_sim辅（0.25）
+        core_sim_arr * 0.4 - gcn_dist_norm * 0.35 + full_sim_arr * 0.25,
+    )
 
     nearest_indices = np.argsort(combined_score)[:top_k]
 
     nearest_neighbors = []
     for idx in nearest_indices:
-        species = species_list[idx]
-        nearest_neighbors.append({
-            "species": species,
-            "gcn_distance": round(float(gcn_distances[idx]), 4),
-            "order_similarity": round(float(order_similarities[idx]), 4),
+        sp = species_list[idx]
+        nn = {
+            "species": sp,
+            "step1_gcn_distance": round(float(gcn_distances[idx]), 4),
+            "step1_core_similarity": round(float(core_order_sims[idx]), 4),
+            "step2_full_similarity": round(float(full_order_sims[idx]), 4),
+            "same_core_order": bool(same_core_order_mask[idx] > 0.5),
             "combined_score": round(float(combined_score[idx]), 4),
-        })
+        }
+        if full_order_details[idx] is not None:
+            nn["step2_core_detail"] = full_order_details[idx]["core_similarity"]
+            nn["step2_trna_detail"] = full_order_details[idx]["trna_similarity"]
+        nearest_neighbors.append(nn)
 
     predicted_species = nearest_neighbors[0]["species"]
-    best_sim = nearest_neighbors[0]["order_similarity"]
-    best_dist = nearest_neighbors[0]["gcn_distance"]
-
-    # 检查是否有完全匹配的基因顺序
-    exact_matches = sum(1 for s in order_similarities if s == 1.0)
-    same_order_species = [
-        species_list[i] for i in range(len(species_list))
-        if order_similarities[i] == 1.0
-    ]
+    best_full_sim = nearest_neighbors[0]["step2_full_similarity"]
+    best_core_sim = nearest_neighbors[0]["step1_core_similarity"]
+    best_dist = nearest_neighbors[0]["step1_gcn_distance"]
 
     result = {
         "predicted_species": predicted_species,
+        "step1_same_core_order_species": exact_core_matches[:10],
+        "step1_same_core_count": same_core_count,
         "nearest_neighbors": nearest_neighbors,
         "similarity_info": {
-            "best_gcn_distance": round(float(best_dist), 4),
-            "best_order_similarity": round(float(best_sim), 4),
-            "exact_order_matches": exact_matches,
-            "same_order_species": same_order_species[:10],
+            "step1_best_gcn_distance": round(float(best_dist), 4),
+            "step1_best_core_similarity": round(float(best_core_sim), 4),
+            "step2_best_full_similarity": round(float(best_full_sim), 4),
+            "same_core_order_count": same_core_count,
         },
     }
 
-    print(f"\n[模块9] 预测结果（最近邻检索）")
-    print(f"  最相似物种  : {predicted_species}")
-    print(f"  GCN嵌入距离 : {best_dist:.4f}")
-    print(f"  基因顺序匹配度: {best_sim:.4f} ({int(best_sim*100)}%)")
-    if exact_matches > 1:
-        print(f"  ⚠ 有 {exact_matches} 个物种共享相同基因顺序:")
-        for sp in same_order_species[:5]:
-            print(f"    - {sp}")
-        if len(same_order_species) > 5:
-            print(f"    - ... 共{exact_matches}个")
-    print(f"\n  最近邻 {top_k}:")
-    print(f"  {'排名':>4} {'物种ID':<14} {'GCN距离':>10} {'顺序匹配':>10} {'综合得分':>10}")
-    print(f"  {'-'*52}")
+    # ========== 输出结果 ==========
+    print(f"\n[模块10] 两步判断预测结果")
+    print(f"  第一步: 15核心基因主判断")
+    print(f"    GCN最佳距离    : {best_dist:.4f}")
+    print(f"    核心排列匹配度 : {best_core_sim:.4f} ({int(best_core_sim*100)}%)")
+    if same_core_count > 1:
+        print(f"    ⚠ {same_core_count} 个物种共享相同核心基因排列:")
+        for sp in exact_core_matches[:5]:
+            print(f"      - {sp}")
+        if len(exact_core_matches) > 5:
+            print(f"      - ... 共{same_core_count}个")
+    print(f"  第二步: 完整基因顺序精细判断（含tRNA）")
+    print(f"    完整排列相似度 : {best_full_sim:.4f} ({int(best_full_sim*100)}%)")
+    if same_core_count > 1:
+        print(f"    → 已通过tRNA排列差异进一步区分同核心排列物种")
+
+    print(f"\n  最终最近邻 {top_k}:")
+    print(f"  {'排名':>4} {'物种ID':<14} {'GCN距离':>8} {'核心匹配':>8} "
+          f"{'全基因匹配':>10} {'同核心排列':>10} {'综合得分':>10}")
+    print(f"  {'-'*66}")
     for i, nn in enumerate(nearest_neighbors, 1):
-        print(f"  {i:>4} {nn['species']:<14} {nn['gcn_distance']:>10.4f} "
-              f"{nn['order_similarity']:>10.4f} {nn['combined_score']:>10.4f}")
+        same_flag = "✓" if nn["same_core_order"] else " "
+        print(f"  {i:>4} {nn['species']:<14} {nn['step1_gcn_distance']:>8.4f} "
+              f"{nn['step1_core_similarity']:>8.4f} "
+              f"{nn['step2_full_similarity']:>10.4f} "
+              f"{same_flag:>10} {nn['combined_score']:>10.4f}")
 
     return result
 
@@ -1019,7 +1165,7 @@ def main(csv_path=DEFAULT_CSV_PATH, output_dir=DEFAULT_OUTPUT_DIR):
     # ==== 阶段1: 构建参考数据库 + 15基因过滤索引 ====
     print("=" * 60)
     print("  MitogeneorderPath - 线粒体基因顺序物种鉴定工具")
-    print("  (仅使用15个核心基因: 13 PCGs + 2 rRNAs)")
+    print("  (两步判断: 15核心基因主判 + 完整基因顺序含tRNA精判)")
     print("=" * 60)
 
     print(f"\n{'='*60}")
@@ -1196,7 +1342,8 @@ def main(csv_path=DEFAULT_CSV_PATH, output_dir=DEFAULT_OUTPUT_DIR):
     print(f"{'='*60}")
 
     result = predict_species(
-        gene_order_filtered, filtered_index, model, species_list, train_dataset
+        gene_order_filtered, gene_order_full, filtered_index, ref_db,
+        model, species_list, train_dataset
     )
 
     # ==== 阶段6: 可视化比对 ====
